@@ -8,8 +8,9 @@ Catches incoming webhook requests on any method/content-type. Runs standalone fi
 |---|---|
 | `POST /webhook` | Main webhook receiver (accepts any HTTP method) |
 | `POST /webhook/:source` | Same, but tags the event with a source name, e.g. `/webhook/emailbison` |
-| `GET /events` | Last 100 received events (in-memory) — use this to check webhooks are coming in |
-| `GET /` | Health check |
+| `GET /events` | Last 100 received events (in-memory) — each shows `stored: true/false` and the Supabase error if the insert failed |
+| `GET /status` | Storage health: received/stored/failed counters, last error, and a live Supabase connection probe |
+| `GET /` | Health check + counters |
 
 Every request to `/webhook` is accepted — JSON, form data, or raw text — and answered with `200 {"ok": true, "id": "...", "stored": true|false}`. Each event is also printed to the deploy logs.
 
@@ -30,7 +31,13 @@ The `webhook_queue` table already exists in the Supabase project. When ready, ad
 - `SUPABASE_SERVICE_ROLE_KEY` — same page (keep secret)
 - `SUPABASE_TABLE` — optional, defaults to `webhook_queue`
 
-New events then insert as `status = 'pending'`, `attempts = 0`, with the request body in `payload` (jsonb) — ready for the existing queue worker. The webhook response's `stored` field flips to `true` when inserts succeed.
+New events then insert as `status = 'pending'`, `attempts = 0`, with the request body in `payload` (jsonb) — ready for the existing queue worker.
+
+**To verify storage is working:**
+
+- `GET /status` — `connection.ok: true` means credentials + table + network are all good, and shows the current row count in the table. The `stats` block shows how many events were received vs stored vs failed since the last restart, with the last error message if any.
+- `GET /events` — each event carries `stored: true` and the `supabase_row_id` it landed in, or `stored: false` with `store_error` explaining why.
+- The webhook response itself returns `{"ok": true, "stored": true, "supabase_row_id": ...}` so the sender-side logs show it too.
 
 ## Run locally
 

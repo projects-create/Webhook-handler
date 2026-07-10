@@ -33,6 +33,15 @@ app.use(
 const MAX_EVENTS = 100;
 const recentEvents = [];
 
+// Running storage stats since last restart, exposed at / and /status
+const stats = {
+  received: 0,
+  stored: 0,
+  store_failed: 0,
+  last_store_error: null,
+  last_stored_at: null,
+};
+
 function parseBody(req) {
   const raw = req.body && req.body.length ? req.body.toString("utf8") : null;
   if (!raw) return { raw: null, json: null };
@@ -66,26 +75,48 @@ async function handleWebhook(req, res) {
 
   recentEvents.unshift(event);
   if (recentEvents.length > MAX_EVENTS) recentEvents.pop();
+  stats.received++;
 
   let stored = false;
   if (supabase) {
     // Matches the existing webhook_queue table: a worker picks rows up by
     // status, so new events land as pending with the body in payload.
-    const { error } = await supabase.from(SUPABASE_TABLE).insert({
-      status: "pending",
-      attempts: 0,
-      payload: json ?? { raw },
-      created_at: event.received_at,
-    });
+    const { data, error } = await supabase
+      .from(SUPABASE_TABLE)
+      .insert({
+        status: "pending",
+        attempts: 0,
+        payload: json ?? { raw },
+        created_at: event.received_at,
+      })
+      .select("id")
+      .single();
     if (error) {
-      console.error("Supabase insert failed:", error.message);
+      event.stored = false;
+      event.store_error = error.message;
+      stats.store_failed++;
+      stats.last_store_error = {
+        at: new Date().toISOString(),
+        message: error.message,
+      };
+      console.error(`[${event.id}] Supabase insert FAILED: ${error.message}`);
     } else {
       stored = true;
+      event.stored = true;
+      event.supabase_row_id = data?.id ?? null;
+      stats.stored++;
+      stats.last_stored_at = new Date().toISOString();
+      console.log(`[${event.id}] stored in ${SUPABASE_TABLE} (row ${data?.id})`);
     }
+  } else {
+    event.stored = false;
+    event.store_error = "supabase not configured";
   }
 
   // Always 200 so senders don't retry-storm while storage is being set up
-  res.status(200).json({ ok: true, id: event.id, stored });
+  res
+    .status(200)
+    .json({ ok: true, id: event.id, stored, supabase_row_id: event.supabase_row_id ?? null });
 }
 
 // Health check (Railway pings this)
@@ -94,11 +125,35 @@ app.get("/", (_req, res) => {
     status: "ok",
     service: "webhook-handler",
     supabase: Boolean(supabase),
+    stats,
     endpoints: {
       webhook: "POST /webhook (or POST /webhook/:source)",
       recent: "GET /events",
+      storage: "GET /status",
     },
   });
+});
+
+// Storage health: counters since last restart + a live probe that reads the
+// table back, so a green result means credentials, table, and network all work.
+app.get("/status", async (_req, res) => {
+  const result = {
+    supabase_configured: Boolean(supabase),
+    table: SUPABASE_TABLE,
+    stats,
+    connection: null,
+  };
+
+  if (supabase) {
+    const { count, error } = await supabase
+      .from(SUPABASE_TABLE)
+      .select("id", { count: "exact", head: true });
+    result.connection = error
+      ? { ok: false, error: error.message }
+      : { ok: true, rows_in_table: count };
+  }
+
+  res.json(result);
 });
 
 // Main webhook endpoints — accept any method senders might use
