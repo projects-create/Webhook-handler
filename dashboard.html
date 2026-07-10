@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webhook Handler</title>
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface: #ffffff;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --hairline: rgba(11,11,11,0.10);
+    --grid: #e1e0d9;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --critical: #d03b3b;
+    --accent: #2a78d6;
+    --radius: 14px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* ---------- header ---------- */
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  .logo {
+    width: 40px; height: 40px; border-radius: 12px; flex: none;
+    background: linear-gradient(135deg, #2a78d6, #4a3aa7);
+    display: grid; place-items: center; color: #fff;
+    box-shadow: 0 4px 14px rgba(42,120,214,0.35);
+  }
+  h1 { font-size: 20px; font-weight: 650; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 1px; }
+  .live {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12.5px; font-weight: 550; color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--hairline);
+    padding: 7px 13px; border-radius: 999px;
+  }
+  .live .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(12,163,12,0.35);} 50% { box-shadow: 0 0 0 5px rgba(12,163,12,0);} }
+
+  .endpoint {
+    display: flex; align-items: center; gap: 10px; margin: 22px 0 28px;
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius);
+    padding: 13px 16px;
+  }
+  .endpoint .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; flex: none; }
+  .endpoint code { font-family: var(--mono); font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .copy {
+    margin-left: auto; flex: none; border: 1px solid var(--hairline); background: var(--page);
+    border-radius: 8px; padding: 6px 12px; font-size: 12.5px; font-weight: 550; color: var(--ink-2);
+    cursor: pointer; transition: all .15s;
+  }
+  .copy:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 34px; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius);
+    padding: 20px 22px;
+    box-shadow: 0 1px 2px rgba(11,11,11,0.03);
+  }
+  .tile .t-label { font-size: 13px; color: var(--ink-2); font-weight: 500; display: flex; align-items: center; gap: 7px; }
+  .tile .t-value { font-size: 34px; font-weight: 650; letter-spacing: -0.02em; margin-top: 8px; line-height: 1.1; }
+  .tile .t-note { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .t-value.good { color: var(--good-text); }
+  .t-value.bad { color: var(--critical); }
+  .conn { display: inline-flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; margin-top: 12px; }
+  .conn svg { flex: none; }
+
+  /* ---------- events ---------- */
+  .section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  .section-head h2 { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .section-head .count { font-size: 13px; color: var(--muted); }
+  .section-head .note { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+  .events { display: flex; flex-direction: column; gap: 10px; }
+  .event {
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius);
+    overflow: hidden; transition: border-color .15s;
+  }
+  .event:hover { border-color: rgba(11,11,11,0.22); }
+  .event-row {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    cursor: pointer; user-select: none; flex-wrap: wrap;
+  }
+  .method {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--accent);
+    background: rgba(42,120,214,0.09); padding: 4px 9px; border-radius: 7px; flex: none;
+  }
+  .etype { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .esource {
+    font-size: 11.5px; font-weight: 600; color: var(--ink-2); background: var(--page);
+    border: 1px solid var(--hairline); padding: 3px 9px; border-radius: 999px;
+  }
+  .etime { font-size: 12.5px; color: var(--muted); margin-left: auto; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; flex: none;
+    font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  }
+  .badge.stored { color: var(--good-text); background: rgba(12,163,12,0.10); }
+  .badge.failed { color: var(--critical); background: rgba(208,59,59,0.10); }
+  .badge.pending { color: var(--ink-2); background: var(--page); border: 1px solid var(--hairline); }
+  .chev { flex: none; color: var(--muted); transition: transform .18s; }
+  .event.open .chev { transform: rotate(90deg); }
+
+  .event-body { display: none; border-top: 1px solid var(--grid); background: var(--page); }
+  .event.open .event-body { display: block; }
+  .event-body .meta {
+    display: flex; gap: 26px; flex-wrap: wrap; padding: 13px 18px; border-bottom: 1px solid var(--grid);
+  }
+  .meta div { font-size: 12.5px; color: var(--ink-2); }
+  .meta b { display: block; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; }
+  .payload { padding: 14px 18px; overflow-x: auto; }
+  .payload pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--ink-2);
+    white-space: pre; max-height: 420px; overflow: auto;
+  }
+  .payload .k { color: #4a3aa7; }
+  .payload .s { color: #006300; }
+  .payload .n { color: #1c5cab; }
+  .payload .b { color: #d03b3b; }
+
+  .empty {
+    text-align: center; padding: 70px 20px; background: var(--surface);
+    border: 1px dashed var(--grid); border-radius: var(--radius); color: var(--muted);
+  }
+  .empty .big { font-size: 15px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+  .err-banner {
+    display: none; margin-bottom: 20px; padding: 12px 16px; border-radius: 10px;
+    background: rgba(208,59,59,0.08); border: 1px solid rgba(208,59,59,0.25);
+    color: var(--critical); font-size: 13px; font-weight: 550;
+  }
+  footer { margin-top: 40px; text-align: center; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+    </div>
+    <div>
+      <h1>Webhook Handler</h1>
+      <div class="sub" id="table-sub">&nbsp;</div>
+    </div>
+    <div class="live"><span class="dot" id="live-dot"></span><span id="live-text">Live · refreshing</span></div>
+  </header>
+
+  <div class="endpoint">
+    <span class="label">Endpoint</span>
+    <code id="hook-url"></code>
+    <button class="copy" id="copy-btn">Copy</button>
+  </div>
+
+  <div class="err-banner" id="err-banner"></div>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="t-label">Received</div>
+      <div class="t-value" id="v-received">–</div>
+      <div class="t-note">since last deploy</div>
+    </div>
+    <div class="tile">
+      <div class="t-label">Stored in Supabase</div>
+      <div class="t-value good" id="v-stored">–</div>
+      <div class="t-note" id="n-stored">&nbsp;</div>
+    </div>
+    <div class="tile">
+      <div class="t-label">Failed to store</div>
+      <div class="t-value" id="v-failed">–</div>
+      <div class="t-note" id="n-failed">&nbsp;</div>
+    </div>
+    <div class="tile">
+      <div class="t-label">Supabase connection</div>
+      <div class="conn" id="v-conn"><span style="color:var(--muted);font-weight:500">checking…</span></div>
+      <div class="t-note" id="n-conn">&nbsp;</div>
+    </div>
+  </div>
+
+  <div class="section-head">
+    <h2>Recent events</h2>
+    <span class="count" id="ev-count"></span>
+    <span class="note">last 100, in-memory · resets on redeploy</span>
+  </div>
+  <div class="events" id="events"></div>
+
+  <footer>Auto-refreshes every 5 seconds</footer>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const openIds = new Set();
+
+  const hookUrl = location.origin + "/webhook";
+  $("hook-url").textContent = hookUrl;
+  $("copy-btn").onclick = async () => {
+    await navigator.clipboard.writeText(hookUrl);
+    $("copy-btn").textContent = "Copied ✓";
+    setTimeout(() => ($("copy-btn").textContent = "Copy"), 1500);
+  };
+
+  const okIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0ca30c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" fill="rgba(12,163,12,0.12)" stroke="none"/><path d="m8.5 12.5 2.5 2.5 5-6"/></svg>';
+  const badIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d03b3b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" fill="rgba(208,59,59,0.12)" stroke="none"/><path d="m9 9 6 6M15 9l-6 6"/></svg>';
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  function highlight(json) {
+    return esc(json).replace(
+      /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+      (m, str, colon, bool) => {
+        if (str) return colon ? '<span class="k">' + str + "</span>" + colon : '<span class="s">' + str + "</span>";
+        if (bool) return '<span class="b">' + bool + "</span>";
+        return '<span class="n">' + m + "</span>";
+      }
+    );
+  }
+
+  function rel(iso) {
+    const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+    if (s < 60) return Math.floor(s) + "s ago";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    if (s < 86400) return Math.floor(s / 3600) + "h ago";
+    return Math.floor(s / 86400) + "d ago";
+  }
+
+  function eventType(e) {
+    const p = e.payload;
+    if (p && typeof p === "object" && p.event) return p.event.name || p.event.type || "Webhook";
+    return "Webhook";
+  }
+
+  function storedBadge(e) {
+    if (e.stored) return '<span class="badge stored">✓ Stored' + (e.supabase_row_id != null ? " · row " + e.supabase_row_id : "") + "</span>";
+    if (e.store_error === "supabase not configured") return '<span class="badge pending">— Not stored</span>';
+    return '<span class="badge failed">✕ Store failed</span>';
+  }
+
+  function render(status, events) {
+    const st = status.stats || {};
+    $("v-received").textContent = st.received ?? 0;
+    $("v-stored").textContent = st.stored ?? 0;
+    $("n-stored").textContent = st.last_stored_at ? "last: " + rel(st.last_stored_at) : "no inserts yet";
+    const failed = st.store_failed ?? 0;
+    $("v-failed").textContent = failed;
+    $("v-failed").className = "t-value" + (failed > 0 ? " bad" : "");
+    $("n-failed").textContent = st.last_store_error ? st.last_store_error.message : "none";
+
+    const c = status.connection;
+    if (!status.supabase_configured) {
+      $("v-conn").innerHTML = '<span style="color:var(--muted);font-weight:500">not configured</span>';
+      $("n-conn").textContent = "set SUPABASE_URL + key";
+    } else if (c && c.ok) {
+      $("v-conn").innerHTML = okIcon + '<span style="color:var(--good-text)">Connected</span>';
+      $("n-conn").textContent = c.rows_in_table + " rows in " + status.table;
+    } else {
+      $("v-conn").innerHTML = badIcon + '<span style="color:var(--critical)">Error</span>';
+      $("n-conn").textContent = c ? c.error : "";
+    }
+    $("table-sub").textContent = status.supabase_configured ? "storing to " + status.table : "catch-only mode (Supabase not connected)";
+
+    $("ev-count").textContent = events.count + " shown";
+    const box = $("events");
+    if (!events.events.length) {
+      box.innerHTML = '<div class="empty"><div class="big">No events yet</div>Send a request to the endpoint above and it will appear here instantly.</div>';
+      return;
+    }
+    box.innerHTML = events.events
+      .map((e) => {
+        const open = openIds.has(e.id) ? " open" : "";
+        const payloadStr = typeof e.payload === "string" ? e.payload : JSON.stringify(e.payload, null, 2);
+        return (
+          '<div class="event' + open + '" data-id="' + e.id + '">' +
+          '<div class="event-row">' +
+          '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>' +
+          '<span class="method">' + esc(e.method) + "</span>" +
+          '<span class="etype">' + esc(eventType(e)) + "</span>" +
+          (e.source ? '<span class="esource">' + esc(e.source) + "</span>" : "") +
+          storedBadge(e) +
+          '<span class="etime" title="' + esc(e.received_at) + '">' + rel(e.received_at) + "</span>" +
+          "</div>" +
+          '<div class="event-body">' +
+          '<div class="meta">' +
+          "<div><b>Received</b>" + esc(new Date(e.received_at).toLocaleString()) + "</div>" +
+          "<div><b>Path</b>" + esc(e.path) + "</div>" +
+          "<div><b>Content type</b>" + esc(e.content_type || "–") + "</div>" +
+          "<div><b>From IP</b>" + esc(e.ip || "–") + "</div>" +
+          (e.store_error ? '<div><b>Store error</b><span style="color:var(--critical)">' + esc(e.store_error) + "</span></div>" : "") +
+          "</div>" +
+          '<div class="payload"><pre>' + highlight(payloadStr) + "</pre></div>" +
+          "</div></div>"
+        );
+      })
+      .join("");
+
+    box.querySelectorAll(".event-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const ev = row.parentElement;
+        const id = ev.dataset.id;
+        ev.classList.toggle("open");
+        ev.classList.contains("open") ? openIds.add(id) : openIds.delete(id);
+      });
+    });
+  }
+
+  async function refresh() {
+    try {
+      const [status, events] = await Promise.all([
+        fetch("/status").then((r) => r.json()),
+        fetch("/events").then((r) => r.json()),
+      ]);
+      $("err-banner").style.display = "none";
+      $("live-text").textContent = "Live · updated " + new Date().toLocaleTimeString();
+      $("live-dot").style.background = "var(--good)";
+      render(status, events);
+    } catch (err) {
+      $("live-dot").style.background = "var(--critical)";
+      $("live-text").textContent = "Connection lost — retrying";
+      $("err-banner").style.display = "block";
+      $("err-banner").textContent = "Could not reach the handler: " + err.message;
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 5000);
+</script>
+</body>
+</html>

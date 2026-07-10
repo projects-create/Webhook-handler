@@ -1,5 +1,6 @@
 const express = require("express");
 const crypto = require("crypto");
+const path = require("path");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
@@ -119,8 +120,11 @@ async function handleWebhook(req, res) {
     .json({ ok: true, id: event.id, stored, supabase_row_id: event.supabase_row_id ?? null });
 }
 
-// Health check (Railway pings this)
-app.get("/", (_req, res) => {
+// Browsers get the dashboard; API clients (curl, monitors) still get JSON
+app.get("/", (req, res) => {
+  if ((req.headers.accept || "").includes("text/html")) {
+    return res.sendFile(path.join(__dirname, "dashboard.html"));
+  }
   res.json({
     status: "ok",
     service: "webhook-handler",
